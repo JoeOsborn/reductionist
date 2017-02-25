@@ -1,7 +1,9 @@
 package edu.ucsc.soe.reductionist;
 
+import automata.AutomataException;
 import automata.svpa.*;
 import org.roaringbitmap.RoaringBitmap;
+import org.sat4j.specs.TimeoutException;
 import theory.svpa.equalityalgebra.EqualityAlgebra;
 import theory.svpa.equalityalgebra.EqualityPredicate;
 import theory.svpa.equalityalgebra.UnaryPredicate;
@@ -442,6 +444,7 @@ public class Reductionist {
                 terminals,
                 nonterminals,
                 tags,
+                unaryTheory,
                 theory,
                 svpa
         );
@@ -455,6 +458,7 @@ public class Reductionist {
     public Map<String, Terminal> terminals;
     public Map<String, NonTerminal> nonterminals;
     public Map<String, ProdID> tags;
+    public FiniteSetSolver unaryTheory;
     public EqualityAlgebra<FiniteSetPred, RoaringBitmap> theory;
     public SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> svpa;
 
@@ -466,6 +470,7 @@ public class Reductionist {
                            Map<String, Terminal> terminals,
                            Map<String, NonTerminal> nonterminals,
                            Map<String, ProdID> tags,
+                           FiniteSetSolver unaryTheory,
                            EqualityAlgebra<FiniteSetPred, RoaringBitmap> theory,
                            SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> svpa) {
         this.universeBV = universeBV;
@@ -476,7 +481,55 @@ public class Reductionist {
         this.terminals = terminals;
         this.nonterminals = nonterminals;
         this.tags = tags;
+        this.unaryTheory = unaryTheory;
         this.theory = theory;
         this.svpa = svpa;
+    }
+
+    public void printWitnessForTagSetProperty(Collection<String> tagSet)
+            throws TimeoutException, AutomataException {
+        SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> prop = svpa;
+        EqualityPredicate<FiniteSetPred, RoaringBitmap> retPred = new UnaryPredicate<>(unaryTheory.True(), true);
+        for(String t : tagSet) {
+            RoaringBitmap mask = this.tags.get(t).mask;
+            System.out.println(t);
+            System.out.println(this.tags.get(t).name);
+            System.out.println(this.tags.get(t).id);
+            System.out.println(mask);
+            List<SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap>> moves = new ArrayList<>();
+            // Two-state SVPA, just care about hitting that tag
+            //Spin in initial state until hitting tag
+            moves.add(new Internal<>(0, 0, theory.True()));
+            moves.add(new Call<>(0, 0, 0, theory.True()));
+            //Go to terminal state when hitting tag on a call
+            moves.add(new Call<>(0, 1, 0, theory.MkAtom(mask)));
+            moves.add(new Return<>(0, 0, 0, retPred));
+            //Spin in terminal state forever
+            moves.add(new Internal<>(1, 1, theory.True()));
+            moves.add(new Call<>(1, 1, 0, theory.True()));
+            moves.add(new Return<>(1, 1, 0, retPred));
+            SVPA <EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> tagProp = SVPA.MkSVPA(
+                    moves,
+                    Collections.singletonList(0),
+                    Collections.singletonList(1),
+                    theory
+            );
+            assert(!tagProp.isEmpty);
+            prop = prop.intersectionWith(tagProp, this.theory);
+        }
+        assert(!prop.isEmpty);
+
+        LinkedList<TaggedSymbol<RoaringBitmap>> witness = prop.getWitness(theory);
+        for(TaggedSymbol<RoaringBitmap> ts : witness) {
+            System.out.format("%s:%s%n",ts.toString(),productions.get(ts.input.first()).name);
+            int fst = ts.input.first();
+            if(fst >= this.terminals.size() && fst < this.terminals.size() + this.nonterminals.size()) {
+                for(ProdID tag : nonterminals.get(productions.get(fst).name).tags) {
+                    System.out.print(tag.id+":");
+                    System.out.print(tag.name+",");
+                }
+                System.out.println("");
+            }
+        }
     }
 }

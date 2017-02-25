@@ -2,6 +2,8 @@ package edu.ucsc.soe.reductionist;
 
 import org.junit.Test;
 
+import java.util.Arrays;
+
 import static org.junit.Assert.assertTrue;
 
 public class TestReductionist {
@@ -9,7 +11,6 @@ public class TestReductionist {
     public void CreateSVPA () throws Exception {
         Reductionist r = Reductionist.fromJSONFile("talktown/talktown-aiide-study-2016.json");
         assertTrue(true);
-        // TODO: create a property and test it!!!
-        
+        r.printWitnessForTagSetProperty(Arrays.asList("Moves#:#say first name", "Moves#:#say last name"));
     }
 }
