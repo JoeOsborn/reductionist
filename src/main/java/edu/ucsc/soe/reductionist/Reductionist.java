@@ -491,7 +491,13 @@ public class Reductionist {
         SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> prop = svpa;
         EqualityPredicate<FiniteSetPred, RoaringBitmap> retPred = new UnaryPredicate<>(unaryTheory.True(), true);
         for(String t : tagSet) {
-            RoaringBitmap mask = this.tags.get(t).mask;
+            int tagID = this.tags.get(t).id;
+            RoaringBitmap tagMask = this.tags.get(t).mask;
+            RoaringBitmap producingNTsMask = nonterminals.values().stream().
+                    filter(nt -> nt.mask.contains(tagID)).
+                    map(nt -> nt.id.mask).
+                    reduce(new RoaringBitmap(), (bm1, bm2) -> RoaringBitmap.or(bm1,bm2));
+            RoaringBitmap mask = RoaringBitmap.or(tagMask, producingNTsMask);
             System.out.println(t);
             System.out.println(this.tags.get(t).name);
             System.out.println(this.tags.get(t).id);
@@ -521,14 +527,18 @@ public class Reductionist {
 
         LinkedList<TaggedSymbol<RoaringBitmap>> witness = prop.getWitness(theory);
         for(TaggedSymbol<RoaringBitmap> ts : witness) {
-            System.out.format("%s:%s%n",ts.toString(),productions.get(ts.input.first()).name);
             int fst = ts.input.first();
-            if(fst >= this.terminals.size() && fst < this.terminals.size() + this.nonterminals.size()) {
+            if(fst <= this.terminals.size()) {
+                System.out.format("T %s:%s%n",ts.toString(),productions.get(ts.input.first()).name);
+            } else if(fst >= this.terminals.size() && fst < this.terminals.size() + this.nonterminals.size()) {
+                System.out.format("NT %s:%s%nTags:",ts.toString(),productions.get(ts.input.first()).name);
                 for(ProdID tag : nonterminals.get(productions.get(fst).name).tags) {
                     System.out.print(tag.id+":");
                     System.out.print(tag.name+",");
                 }
                 System.out.println("");
+            } else {
+                System.out.format("Other %s:%s%n",ts.toString(),productions.get(ts.input.first()).name);
             }
         }
     }
