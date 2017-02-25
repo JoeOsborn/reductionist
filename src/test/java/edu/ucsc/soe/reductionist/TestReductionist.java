@@ -1,20 +1,15 @@
 package edu.ucsc.soe.reductionist;
 
-import static org.junit.Assert.*;
 import org.junit.Test;
 
-import org.roaringbitmap.RoaringBitmap;
-
-import edu.ucsc.soe.reductionist.Reductionist;
-import edu.ucsc.soe.reductionist.FiniteSetPred;
-import edu.ucsc.soe.reductionist.FiniteSetSolver;
-
-import automata.svpa.*;
+import static org.junit.Assert.assertTrue;
 
 public class TestReductionist {
     @Test
     public void CreateSVPA () throws Exception {
-        Reductionist r = Reductionist.fromJSONFile("talktown/TeacherTexts.json");
+        Reductionist r = Reductionist.fromJSONFile("talktown/talktown-aiide-study-2016.json");
         assertTrue(true);
+        // TODO: create a property and test it!!!
+        
     }
 }

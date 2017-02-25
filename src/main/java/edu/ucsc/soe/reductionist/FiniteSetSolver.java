@@ -13,9 +13,9 @@ public class FiniteSetSolver extends BooleanAlgebra<FiniteSetPred, RoaringBitmap
     RoaringBitmap universe, zero;
     FiniteSetPred puniverse, pzero;
     
-    public FiniteSetSolver(int domain_size) {
+    public FiniteSetSolver(long domain_size) {
         universe = new RoaringBitmap();
-        universe.add(0, domain_size);
+        universe.add(0L, domain_size);
         puniverse = new FiniteSetPred(universe);
         zero = new RoaringBitmap();
         pzero = new FiniteSetPred(zero);
@@ -38,7 +38,7 @@ public class FiniteSetSolver extends BooleanAlgebra<FiniteSetPred, RoaringBitmap
     }
     @Override
     public FiniteSetPred MkOr(FiniteSetPred a, FiniteSetPred b) {
-        return new FiniteSetPred(RoaringBitmap.and(a.bv, b.bv));
+        return new FiniteSetPred(RoaringBitmap.or(a.bv, b.bv));
     }
     @Override
     public FiniteSetPred MkAnd(Collection<FiniteSetPred> pset) {

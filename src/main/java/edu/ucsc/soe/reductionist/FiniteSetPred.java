@@ -1,7 +1,8 @@
 package edu.ucsc.soe.reductionist;
 
-import java.util.Objects;
 import org.roaringbitmap.RoaringBitmap;
+
+import java.util.Objects;
 
 public class FiniteSetPred {
     public final RoaringBitmap bv;
@@ -25,10 +26,7 @@ public class FiniteSetPred {
     }
     @Override
     public boolean equals(Object obj) {
-        if (obj instanceof FiniteSetPred) {
-            return Objects.equals(this.bv, ((FiniteSetPred) obj).bv);
-        }
-        return false;
+        return obj instanceof FiniteSetPred && Objects.equals(this.bv, ((FiniteSetPred) obj).bv);
     }
     @Override
     public int hashCode() {
