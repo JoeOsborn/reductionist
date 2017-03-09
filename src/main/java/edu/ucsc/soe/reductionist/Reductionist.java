@@ -7,6 +7,7 @@ import org.sat4j.specs.TimeoutException;
 import theory.svpa.equalityalgebra.EqualityAlgebra;
 import theory.svpa.equalityalgebra.EqualityPredicate;
 import theory.svpa.equalityalgebra.UnaryPredicate;
+import utilities.IntegerPair;
 
 import javax.json.*;
 import java.io.FileReader;
@@ -134,6 +135,8 @@ public class Reductionist {
 
         // Find every nonterminal, terminal, and tag.
         // Also note which nonterminals are used.
+        // Also introduce a new terminal for every rule to obtain an
+        // unambiguous, deterministic SVPA.
         HashSet<String> usedNTs = new HashSet<>();
         for(Map.Entry<String, JsonValue> entry : nts.entrySet()) {
             JsonObject prodObj = (JsonObject)entry.getValue();
@@ -159,8 +162,14 @@ public class Reductionist {
                     }
                 }
             }
+
+            int ruleNumber = 0;
             for(JsonValue ruleVal : prodObj.getJsonArray("rules")) {
                 JsonObject rule = (JsonObject)ruleVal;
+                String key = String.format("$R%d", ruleNumber++);
+                if(!terminals.containsKey(key)) {
+                    terminals.put(key, new Terminal(key));
+                }
                 JsonArray expansion = rule.getJsonArray("expansion");
                 for(JsonValue js : expansion) {
                     String s = ((JsonString)js).getString();
@@ -256,10 +265,13 @@ public class Reductionist {
         for(Map.Entry<String, JsonValue> entry : nts.entrySet()) {
             JsonObject prodObj = (JsonObject)entry.getValue();
             NonTerminal nt = nonterminals.get(entry.getKey());
+            int ruleNumber = 0;
             for(JsonValue ruleVal : prodObj.getJsonArray("rules")) {
                 JsonObject rule = (JsonObject)ruleVal;
                 // TODO: ignoring app_rate
                 ArrayList<Production> steps = new ArrayList<>();
+                String key = String.format("$R%d", ruleNumber++);
+                steps.add(terminals.get(key));
                 JsonArray expansion = rule.getJsonArray("expansion");
                 for(JsonValue js : expansion) {
                     String s = ((JsonString)js).getString();
@@ -486,9 +498,10 @@ public class Reductionist {
         this.svpa = svpa;
     }
 
-    public void printWitnessForTagSetProperty(Collection<String> tagSet)
+    //TODO: Make this and the rest deterministic?
+    public SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> tagSetProperty(Collection<String> tagSet)
             throws TimeoutException, AutomataException {
-        SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> prop = svpa;
+        SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> prop = SVPA.getFullSVPA(this.theory);
         EqualityPredicate<FiniteSetPred, RoaringBitmap> retPred = new UnaryPredicate<>(unaryTheory.True(), true);
         for(String t : tagSet) {
             int tagID = this.tags.get(t).id;
@@ -498,10 +511,6 @@ public class Reductionist {
                     map(nt -> nt.id.mask).
                     reduce(new RoaringBitmap(), (bm1, bm2) -> RoaringBitmap.or(bm1,bm2));
             RoaringBitmap mask = RoaringBitmap.or(tagMask, producingNTsMask);
-            System.out.println(t);
-            System.out.println(this.tags.get(t).name);
-            System.out.println(this.tags.get(t).id);
-            System.out.println(mask);
             List<SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap>> moves = new ArrayList<>();
             // Two-state SVPA, just care about hitting that tag
             //Spin in initial state until hitting tag
@@ -524,8 +533,97 @@ public class Reductionist {
             prop = prop.intersectionWith(tagProp, this.theory);
         }
         assert(!prop.isEmpty);
+        return prop;
+    }
 
-        LinkedList<TaggedSymbol<RoaringBitmap>> witness = prop.getWitness(theory);
+    public SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> tagSetAbsentProperty(Collection<String> tagSet)
+            throws TimeoutException, AutomataException {
+        SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> prop = SVPA.getFullSVPA(this.theory);
+        EqualityPredicate<FiniteSetPred, RoaringBitmap> retPred = new UnaryPredicate<>(unaryTheory.True(), true);
+        for(String t : tagSet) {
+            int tagID = this.tags.get(t).id;
+            RoaringBitmap tagMask = this.tags.get(t).mask;
+            RoaringBitmap producingNTsMask = nonterminals.values().stream().
+                    filter(nt -> nt.mask.contains(tagID)).
+                    map(nt -> nt.id.mask).
+                    reduce(new RoaringBitmap(), (bm1, bm2) -> RoaringBitmap.or(bm1,bm2));
+            RoaringBitmap mask = RoaringBitmap.or(tagMask, producingNTsMask);
+            List<SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap>> moves = new ArrayList<>();
+            // Two-state SVPA, just care about hitting that tag
+            // Spin in initial state until hitting tag
+            moves.add(new Internal<>(0, 0, theory.True()));
+            moves.add(new Call<>(0, 0, 0, theory.True()));
+            // Go to stuck state when hitting tag on a call
+            moves.add(new Call<>(0, 1, 0, theory.MkAtom(mask)));
+            moves.add(new Return<>(0, 0, 0, retPred));
+            // Spin in stuck state forever
+            moves.add(new Internal<>(1, 1, theory.True()));
+            moves.add(new Call<>(1, 1, 0, theory.True()));
+            moves.add(new Return<>(1, 1, 0, retPred));
+            SVPA <EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> tagProp = SVPA.MkSVPA(
+                    moves,
+                    Collections.singletonList(0),
+                    Collections.singletonList(0),
+                    theory
+            );
+            assert(!tagProp.isEmpty);
+            prop = prop.intersectionWith(tagProp, this.theory);
+        }
+        assert(!prop.isEmpty);
+        return prop;
+    }
+
+    public SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> tagSeqProperty(List<String> tagSet)
+            throws TimeoutException, AutomataException {
+        EqualityPredicate<FiniteSetPred, RoaringBitmap> retPred = new UnaryPredicate<>(unaryTheory.True(), true);
+        List<SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap>> moves = new ArrayList<>();
+        int stateCount = 0;
+        int startState = stateCount++;
+        int here = startState;
+        // K+1-state SVPA, move from K to K+1 when hitting the right tag.
+        //
+        for(String t : tagSet) {
+            int tagID = this.tags.get(t).id;
+            RoaringBitmap tagMask = this.tags.get(t).mask;
+            RoaringBitmap producingNTsMask = nonterminals.values().stream().
+                    filter(nt -> nt.mask.contains(tagID)).
+                    map(nt -> nt.id.mask).
+                    reduce(new RoaringBitmap(), (bm1, bm2) -> RoaringBitmap.or(bm1,bm2));
+            RoaringBitmap mask = RoaringBitmap.or(tagMask, producingNTsMask);
+            int there = stateCount++;
+            // Always use 0 stack state because we don't care about the grammar's stack here.
+            moves.add(new Internal<>(here, here, theory.True()));
+            moves.add(new Call<>(here, here, 0, theory.True()));
+            moves.add(new Return<>(here, here, 0, retPred));
+            //Go to next state when hitting tag on a call
+            moves.add(new Call<>(here, there, 0, theory.MkAtom(mask)));
+            here = there;
+        }
+        //Spin in terminal state forever
+        moves.add(new Internal<>(here, here, theory.True()));
+        moves.add(new Call<>(here, here, 0, theory.True()));
+        moves.add(new Return<>(here, here, 0, retPred));
+        //Build SVPA
+        SVPA <EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> tagProp = SVPA.MkSVPA(
+                moves,
+                Collections.singletonList(startState),
+                Collections.singletonList(here),
+                theory
+        );
+        assert(!tagProp.isEmpty);
+        return tagProp;
+    }
+
+    public List<TaggedSymbol<RoaringBitmap>> witnessForProperty(SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> prop) throws TimeoutException, AutomataException {
+        if(prop == null) {
+            return this.svpa.getWitness(this.theory);
+        }
+        SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> isec = this.svpa.intersectionWith(prop, this.theory);
+        return isec.getWitness(this.theory);
+    }
+    // TODO: gatherWitnessesForProperty(prop, collector-fn) or witnessIteratorForProperty(prop) or something. Using stream.generate and providing a witness supplier?
+
+    public void printWitness(List<TaggedSymbol<RoaringBitmap>> witness) {
         for(TaggedSymbol<RoaringBitmap> ts : witness) {
             int fst = ts.input.first();
             if(fst <= this.terminals.size()) {
@@ -541,5 +639,26 @@ public class Reductionist {
                 System.out.format("Other %s:%s%n",ts.toString(),productions.get(ts.input.first()).name);
             }
         }
+    }
+
+    public Integer getCardinality(int prodLimit)
+            throws TimeoutException, AutomataException {
+        return this.getCardinality(this.svpa, prodLimit);
+    }
+    public Integer getCardinality(SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> aut, int prodLimit)
+            throws TimeoutException, AutomataException {
+        aut = SVPA.determinize(aut, this.theory);
+        System.out.println("DETERMINIZED");
+        // Use the Chomsky reachability recursion via dynamic programming
+        HashMap<IntegerPair, Integer> cards = new HashMap<>();
+        for(int k = 0; k < prodLimit; k++) {
+            for(Integer i : svpa.getStates()) {
+                //...
+            }
+        }
+        // Note: the sum isn't just over (state,letter) but over (state, stack_state) , and we use a hypothetical
+        //  getWitnessCount() to figure out how many "letters" could get us from state,stack_state into this_state and add that many.
+        //  That way we don't actually enumerate over every witness, but have a nice closed form solution.
+        return 0;
     }
 }
