@@ -513,11 +513,12 @@ public class Reductionist {
             RoaringBitmap mask = RoaringBitmap.or(tagMask, producingNTsMask);
             List<SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap>> moves = new ArrayList<>();
             // Two-state SVPA, just care about hitting that tag
+            EqualityPredicate<FiniteSetPred, RoaringBitmap> maskAtom = theory.MkAtom(mask), notMaskAtom = theory.MkNot(maskAtom);
             //Spin in initial state until hitting tag
             moves.add(new Internal<>(0, 0, theory.True()));
-            moves.add(new Call<>(0, 0, 0, theory.True()));
+            moves.add(new Call<>(0, 0, 0, notMaskAtom));
             //Go to terminal state when hitting tag on a call
-            moves.add(new Call<>(0, 1, 0, theory.MkAtom(mask)));
+            moves.add(new Call<>(0, 1, 0, maskAtom));
             moves.add(new Return<>(0, 0, 0, retPred));
             //Spin in terminal state forever
             moves.add(new Internal<>(1, 1, theory.True()));
@@ -530,10 +531,10 @@ public class Reductionist {
                     theory
             );
             assert(!tagProp.isEmpty);
-            prop = prop.intersectionWith(tagProp, this.theory);
+            prop = prop.intersectionWith(tagProp.determinize(this.theory), this.theory);
         }
         assert(!prop.isEmpty);
-        return prop;
+        return prop.determinize(theory);
     }
 
     public SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> tagSetAbsentProperty(Collection<String> tagSet)
@@ -551,11 +552,12 @@ public class Reductionist {
             List<SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap>> moves = new ArrayList<>();
             // Two-state SVPA, just care about hitting that tag
             // Spin in initial state until hitting tag
+            EqualityPredicate<FiniteSetPred, RoaringBitmap> maskAtom = theory.MkAtom(mask), notMaskAtom = theory.MkNot(maskAtom);
             moves.add(new Internal<>(0, 0, theory.True()));
-            moves.add(new Call<>(0, 0, 0, theory.True()));
-            // Go to stuck state when hitting tag on a call
-            moves.add(new Call<>(0, 1, 0, theory.MkAtom(mask)));
+            moves.add(new Call<>(0, 0, 0, notMaskAtom));
             moves.add(new Return<>(0, 0, 0, retPred));
+            // Go to stuck state when hitting tag on a call
+            moves.add(new Call<>(0, 1, 0, maskAtom));
             // Spin in stuck state forever
             moves.add(new Internal<>(1, 1, theory.True()));
             moves.add(new Call<>(1, 1, 0, theory.True()));
@@ -567,10 +569,10 @@ public class Reductionist {
                     theory
             );
             assert(!tagProp.isEmpty);
-            prop = prop.intersectionWith(tagProp, this.theory);
+            prop = prop.intersectionWith(tagProp.determinize(this.theory), this.theory);
         }
         assert(!prop.isEmpty);
-        return prop;
+        return prop.determinize(theory);
     }
 
     public SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> tagSeqProperty(List<String> tagSet)
@@ -592,11 +594,12 @@ public class Reductionist {
             RoaringBitmap mask = RoaringBitmap.or(tagMask, producingNTsMask);
             int there = stateCount++;
             // Always use 0 stack state because we don't care about the grammar's stack here.
+            EqualityPredicate<FiniteSetPred, RoaringBitmap> maskAtom = theory.MkAtom(mask), notMaskAtom = theory.MkNot(maskAtom);
             moves.add(new Internal<>(here, here, theory.True()));
-            moves.add(new Call<>(here, here, 0, theory.True()));
+            moves.add(new Call<>(here, here, 0, notMaskAtom));
             moves.add(new Return<>(here, here, 0, retPred));
             //Go to next state when hitting tag on a call
-            moves.add(new Call<>(here, there, 0, theory.MkAtom(mask)));
+            moves.add(new Call<>(here, there, 0, maskAtom));
             here = there;
         }
         //Spin in terminal state forever
@@ -611,7 +614,7 @@ public class Reductionist {
                 theory
         );
         assert(!tagProp.isEmpty);
-        return tagProp;
+        return tagProp.determinize(theory);
     }
 
     public List<TaggedSymbol<RoaringBitmap>> witnessForProperty(SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> prop) throws TimeoutException, AutomataException {
