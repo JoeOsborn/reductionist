@@ -10,15 +10,19 @@ import java.util.Collection;
 import java.util.stream.Stream;
 
 public class FiniteSetSolver extends BooleanAlgebra<FiniteSetPred, RoaringBitmap> {
-    RoaringBitmap universe, zero;
+    RoaringBitmap universe, zero, independentUniverse;
     FiniteSetPred puniverse, pzero;
+    long independentDomainSize;
     
-    public FiniteSetSolver(long domain_size) {
+    public FiniteSetSolver(long domain_size, long independentDomainSize) {
         universe = new RoaringBitmap();
         universe.add(0L, domain_size);
         puniverse = new FiniteSetPred(universe);
         zero = new RoaringBitmap();
         pzero = new FiniteSetPred(zero);
+        this.independentDomainSize = independentDomainSize;
+        this.independentUniverse = new RoaringBitmap();
+        this.independentUniverse.add(0L, independentDomainSize);
     }
     
     @Override
@@ -86,5 +90,21 @@ public class FiniteSetSolver extends BooleanAlgebra<FiniteSetPred, RoaringBitmap
     @Override
     public Pair<RoaringBitmap, RoaringBitmap> generateWitnesses(FiniteSetPred p1) {
         throw new UnsupportedOperationException("Not supported yet.");
+    }
+
+    @Override
+    public int countWitnesses(FiniteSetPred p) {
+        //how many elements of the universe does p contain?
+        //here I actually only care about the NTs and Ts, not the tags.
+        //FIXME: ? special case the universe which is mainly used for returns?
+        if(p.bv.equals(universe)) {
+            return 1;
+        }
+        int interestingPart = RoaringBitmap.andCardinality(p.bv, this.independentUniverse);
+        if(interestingPart > 0) {
+            return interestingPart;
+        }
+        //FIXME: ? Is this right?
+        return 1;
     }
 }

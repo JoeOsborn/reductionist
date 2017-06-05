@@ -212,11 +212,6 @@ public class Reductionist {
         nonterminalMask.add(terminalCount, terminalCount + nonterminalCount);
         RoaringBitmap tagMask = new RoaringBitmap();
         tagMask.add(terminalCount+nonterminalCount, terminalCount+nonterminalCount+tagCount);
-        RoaringBitmap nonterminalReturnMask = new RoaringBitmap();
-        nonterminalReturnMask.add(
-                terminalCount+nonterminalCount+tagCount,
-                terminalCount+nonterminalCount+tagCount+nonterminalCount
-        );
 
         // Number every terminal, nonterminal, and tag!
 
@@ -261,14 +256,9 @@ public class Reductionist {
         Stream<ProdID> nonterminalIDs = Arrays.stream(sortedNonTerminals).
                 map(Production::getId);
         Stream<ProdID> tagIDs = Arrays.stream(sortedTags);
-        //Stream<ProdID> nonterminalReturnIDs = Arrays.stream(sortedNonTerminalReturns);
-        Stream<ProdID> nonterminalReturnIDs = Arrays.stream(new ProdID[0]);
         List<ProdID> productions = Stream.concat(
-                Stream.concat(
-                        Stream.concat(terminalIDs, nonterminalIDs),
-                        tagIDs
-                ),
-                nonterminalReturnIDs
+                Stream.concat(terminalIDs, nonterminalIDs),
+                tagIDs
         ).collect(Collectors.toList());
 
         // Now hook up references and add any un-referenced rules to the root nonterminal.
@@ -314,7 +304,8 @@ public class Reductionist {
 
 
         FiniteSetSolver unaryTheory = new FiniteSetSolver(
-                terminalCount + nonterminalCount + tagCount
+                terminalCount + nonterminalCount + tagCount,
+                terminalCount+nonterminalCount
         );
 
         // Now build frags for each nonterminal
@@ -332,9 +323,22 @@ public class Reductionist {
             int endState = stateCount++;
             ntStarts.put(nt.id.id, startState);
             ntEnds.put(nt.id.id, endState);
+            boolean anyRulesInteresting = !emsOnly;
             // Create frags for all edges of all productions, including call edges
             for(List<Production> steps : nt.rules) {
                 System.out.println(steps.get(0).getId().name);
+                if(emsOnly) {
+                    boolean anyInteresting = false;
+                    for(Production prod : steps) {
+                        if((prod instanceof NonTerminal) && hasTagsStar.get(((NonTerminal)prod).getId().name)) {
+                            anyInteresting = true;
+                            anyRulesInteresting = true;
+                        }
+                    }
+                    if(!anyInteresting) {
+                        continue;
+                    }
+                }
                 int here = startState;
                 Frag active = null;
                 for(Production prod : steps) {
@@ -380,6 +384,9 @@ public class Reductionist {
                 }
                 System.out.format("Link end frag ->%d%n", endState);
                 active.target = StateRef.MkSpecific(endState);
+            }
+            if(!anyRulesInteresting) {
+                ntEnds.put(nt.id.id, startState);
             }
         }
 
@@ -691,24 +698,42 @@ public class Reductionist {
         }
     }
 
-    public Integer getCardinality(int prodLimit)
+    public Long getCardinality(int prodLimit)
             throws TimeoutException, AutomataException {
         return this.getCardinality(this.svpa, prodLimit);
     }
-    public Integer getCardinality(SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> aut, int prodLimit)
+
+    public Long getCardinality(SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> aut, int prodLimit)
             throws TimeoutException, AutomataException {
         aut = SVPA.determinize(aut, this.theory);
         System.out.println("DETERMINIZED");
-        // Use the Chomsky reachability recursion via dynamic programming
-        HashMap<IntegerPair, Integer> cards = new HashMap<>();
-        for(int k = 0; k < prodLimit; k++) {
+        long allFound = 0;
+        HashMap<IntegerPair, Long> cards = new HashMap<>();
+        for(Integer i : svpa.getInitialStates()) {
+            cards.put(new IntegerPair(0, i), 1L);
+        }
+        for(int k = 1; k < prodLimit; k++) {
             for(Integer i : svpa.getStates()) {
-                //...
+                long toHere = 0;
+                for(SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> move : svpa.getMovesTo(i)) {
+                    Integer p = move.from;
+                    IntegerPair key = new IntegerPair(k-1, p);
+                    Long toThere = cards.getOrDefault(key, 0L);
+                    //how many single steps from (k-1,p) get us to (k,i)?
+                    if(toThere > 0L) {
+                        int witnesses = move.countWitnesses(this.theory);
+                        toHere += toThere*witnesses;
+                    }
+                }
+                if(toHere > 0L) {
+                    if (svpa.isFinalState(i) && toHere > 0L) {
+                        allFound += toHere;
+                    }
+                    cards.put(new IntegerPair(k, i), toHere);
+                }
             }
         }
-        // Note: the sum isn't just over (state,letter) but over (state, stack_state) , and we use a hypothetical
-        //  getWitnessCount() to figure out how many "letters" could get us from state,stack_state into this_state and add that many.
-        //  That way we don't actually enumerate over every witness, but have a nice closed form solution.
-        return 0;
+        // FIXME: the sum isn't just over (state,letter) but over (state, stack_state) ... right?
+        return allFound;
     }
 }
