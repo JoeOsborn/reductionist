@@ -117,7 +117,12 @@ public class Reductionist {
         }
     }
 
-    public static Reductionist fromJSONFile(String path)
+    // also add a new function to make an EM-automaton from a grammar:
+    //  * for each NT find out if that NT has tags or descendants with tags
+    //  * ignore all terminals
+    //  * when constructing automaton, skip any calls to NTs that don't have tags or descendants with tags
+
+    public static Reductionist fromJSONFile(String path, boolean emsOnly)
         throws java.io.IOException,
             automata.AutomataException,
             org.sat4j.specs.TimeoutException {
@@ -142,6 +147,7 @@ public class Reductionist {
             JsonObject prodObj = (JsonObject)entry.getValue();
             NonTerminal nt = new NonTerminal(entry.getKey());
             nonterminals.put(nt.id.name, nt);
+            boolean hasTags = false;
             JsonValue markup = prodObj.get("markup");
             if(markup != null && markup != JsonValue.NULL) {
                 for(Map.Entry<String, JsonValue> markupTags : ((JsonObject)markup).entrySet()) {
@@ -189,6 +195,11 @@ public class Reductionist {
                 }
             }
         }
+        for(int i = 0; i < nonterminals.size() - usedNTs.size(); i++) {
+            String rootKey = String.format("$Root%d", i);
+            terminals.put(rootKey, new Terminal(rootKey));
+        }
+
         // Now we can build a universe.  Terminals, then nonterminals, then tags.
         long terminalCount = terminals.size();
         long nonterminalCount = nonterminals.size();
@@ -261,7 +272,6 @@ public class Reductionist {
         ).collect(Collectors.toList());
 
         // Now hook up references and add any un-referenced rules to the root nonterminal.
-
         for(Map.Entry<String, JsonValue> entry : nts.entrySet()) {
             JsonObject prodObj = (JsonObject)entry.getValue();
             NonTerminal nt = nonterminals.get(entry.getKey());
@@ -281,21 +291,27 @@ public class Reductionist {
                         // I'm a nonterminal reference
                         String refProdName = s.substring(2, slen-2);
                         steps.add(nonterminals.get(refProdName));
-                    } else {
+                    } else if(!emsOnly) {
                         steps.add(terminals.get(s));
                     }
                 }
                 nt.rules.add(steps);
             }
             if(!usedNTs.contains(nt.id.name)) {
-                ArrayList<Production> singleStep = new ArrayList<>();
-                singleStep.add(nt);
-                // TODO: ignoring app_rate
-                root.rules.add(singleStep);
+                ArrayList<Production> rootSteps = new ArrayList<>();
+                String key = String.format("$Root%d", root.rules.size());
+                rootSteps.add(terminals.get(key));
+                rootSteps.add(nt);
+                root.rules.add(rootSteps);
             }
         }
+
+        HashMap<String, Boolean> hasTagsStar = new HashMap<>();
+        fillEMsClosure(root, hasTagsStar);
+
         System.out.format("Ts:%d, NTs:%d, tags:%d%n", terminalCount, nonterminalCount, tagCount);
         System.out.format("RN:%s, %d, %d%n", root.id.name, root.id.id, root.rules.size());
+
 
         FiniteSetSolver unaryTheory = new FiniteSetSolver(
                 terminalCount + nonterminalCount + tagCount
@@ -308,6 +324,9 @@ public class Reductionist {
         List<Frag> openEdges = new ArrayList<>();
         List<Frag> edges = new ArrayList<>();
         for(NonTerminal nt : sortedNonTerminals) {
+            if(emsOnly && !hasTagsStar.get(nt.getId().name)) {
+                continue;
+            }
             // Allocate start and end states, tie to this NT ID
             int startState = stateCount++;
             int endState = stateCount++;
@@ -315,9 +334,15 @@ public class Reductionist {
             ntEnds.put(nt.id.id, endState);
             // Create frags for all edges of all productions, including call edges
             for(List<Production> steps : nt.rules) {
+                System.out.println(steps.get(0).getId().name);
                 int here = startState;
                 Frag active = null;
                 for(Production prod : steps) {
+                    if(emsOnly && prod instanceof NonTerminal) {
+                        if (!hasTagsStar.get(((NonTerminal)prod).getId().name)) {
+                            continue;
+                        }
+                    }
                     if(active != null) {
                         here = stateCount++;
                         System.out.format("Link frag ->%d%n", here);
@@ -463,6 +488,28 @@ public class Reductionist {
         jread.close();
         fread.close();
         return r;
+    }
+
+    private static boolean fillEMsClosure(NonTerminal root,
+                                          HashMap<String, Boolean> hasTagsStar) {
+        //return true if root has any tags or descendants have any tags
+        String name = root.getId().name;
+        // Correct behavior depends on having no cycles
+        if(hasTagsStar.containsKey(name)) {
+            return hasTagsStar.get(name);
+        }
+        boolean anyTags = !(root.tags.isEmpty());
+
+        hasTagsStar.put(name, anyTags);
+        for(List<Production> ps : root.rules) {
+            for(Production p : ps) {
+                if(p instanceof NonTerminal) {
+                    anyTags = fillEMsClosure((NonTerminal)p, hasTagsStar) || anyTags;
+                }
+            }
+        }
+        hasTagsStar.put(name, anyTags);
+        return anyTags;
     }
 
     public RoaringBitmap universeBV, terminalsBV, nonterminalsBV, tagsBV;

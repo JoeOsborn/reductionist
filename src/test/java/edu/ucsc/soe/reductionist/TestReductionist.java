@@ -9,13 +9,12 @@ import theory.svpa.equalityalgebra.EqualityPredicate;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.junit.Assert.assertTrue;
-
 public class TestReductionist {
     @Test
     public void CreateSVPA () throws Exception {
-        Reductionist r = Reductionist.fromJSONFile("talktown/talktown-aiide-study-2016.json");
-        assertTrue(true);
+        Reductionist r = Reductionist.fromJSONFile("talktown/talktown-aiide-study-2016.json", true);
+        //todo: count
+        //Reductionist r = Reductionist.fromJSONFile("talktown/talktown-aiide-study-2016.json", false);
         System.out.format("Card: %d%n", r.getCardinality(100));
         System.out.println("A trace where we say our first and last name");
         SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> firstlast = r.tagSetProperty(Arrays.asList("Moves#:#say first name", "Moves#:#say last name"));
