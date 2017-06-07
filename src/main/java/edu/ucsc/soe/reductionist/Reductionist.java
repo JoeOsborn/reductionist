@@ -7,10 +7,10 @@ import org.sat4j.specs.TimeoutException;
 import theory.svpa.equalityalgebra.EqualityAlgebra;
 import theory.svpa.equalityalgebra.EqualityPredicate;
 import theory.svpa.equalityalgebra.UnaryPredicate;
-import utilities.IntegerPair;
 
 import javax.json.*;
 import java.io.FileReader;
+import java.math.BigInteger;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -698,42 +698,132 @@ public class Reductionist {
         }
     }
 
-    public Long getCardinality(int prodLimit)
+    public BigInteger getCardinality(int prodLimit)
             throws TimeoutException, AutomataException {
         return this.getCardinality(this.svpa, prodLimit);
     }
 
-    public Long getCardinality(SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> aut, int prodLimit)
+    protected class StackState {
+        ArrayList<Integer> states;
+        StackState() {
+            this.states = new ArrayList<>();
+        }
+        StackState push(int s) {
+            StackState s2 = new StackState();
+            s2.states = new ArrayList<>(this.states);
+            s2.states.add(s);
+            assert(s2.states.size() != states.size());
+            return s2;
+        }
+        StackState pop() {
+            StackState s2 = new StackState();
+            s2.states = new ArrayList<>(this.states);
+            s2.states.remove(s2.states.size()-1);
+            assert(s2.states.size() != states.size());
+            return s2;
+        }
+        Integer getTop() {
+            return this.states.get(this.states.size()-1);
+        }
+        int size() {
+            return this.states.size();
+        }
+        public int hashCode() {
+            return this.states.hashCode();
+        }
+        public boolean equals(Object o) {
+            return o instanceof StackState &&
+                    ((StackState)(o)).states.equals(this.states);
+        }
+    }
+
+    public BigInteger getCardinality(SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> aut, int prodLimit)
             throws TimeoutException, AutomataException {
         aut = SVPA.determinize(aut, this.theory);
         System.out.println("DETERMINIZED");
-        long allFound = 0;
-        HashMap<IntegerPair, Long> cards = new HashMap<>();
+        BigInteger allFound = BigInteger.ZERO;
+        HashMap<Integer, HashMap<StackState, BigInteger>> cardsA = new HashMap<>();
+        HashMap<Integer, HashMap<StackState, BigInteger>> cardsB = new HashMap<>();
+        HashMap<Integer, HashMap<StackState, BigInteger>> cardsSwap = null;
         for(Integer i : svpa.getInitialStates()) {
-            cards.put(new IntegerPair(0, i), 1L);
+            HashMap<StackState, BigInteger> records = new HashMap<>();
+            records.put(new StackState(), BigInteger.ONE);
+            cardsB.put(i, records);
         }
-        for(int k = 1; k < prodLimit; k++) {
-            for(Integer i : svpa.getStates()) {
-                long toHere = 0;
-                for(SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> move : svpa.getMovesTo(i)) {
-                    Integer p = move.from;
-                    IntegerPair key = new IntegerPair(k-1, p);
-                    Long toThere = cards.getOrDefault(key, 0L);
-                    //how many single steps from (k-1,p) get us to (k,i)?
-                    if(toThere > 0L) {
-                        int witnesses = move.countWitnesses(this.theory);
-                        toHere += toThere*witnesses;
-                    }
-                }
-                if(toHere > 0L) {
-                    if (svpa.isFinalState(i) && toHere > 0L) {
-                        allFound += toHere;
-                    }
-                    cards.put(new IntegerPair(k, i), toHere);
-                }
+        HashMap<Integer, Collection<SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap>>> movesTo = new HashMap<>();
+        HashMap<SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap>, Integer> witnessesBy = new HashMap<>();
+        for(Integer i : svpa.getStates()) {
+            movesTo.put(i, svpa.getMovesTo(i));
+            for(SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> move : movesTo.get(i)) {
+                witnessesBy.put(move, move.countWitnesses(this.theory));
             }
         }
-        // FIXME: the sum isn't just over (state,letter) but over (state, stack_state) ... right?
+        for(int k = 1; k < prodLimit; k++) {
+            //System.out.println("k: "+k);
+            for(Integer i : svpa.getStates()) {
+                boolean isFinal = svpa.isFinalState(i);
+                HashMap<StackState, BigInteger> toHere = new HashMap<>();
+                for(SVPAMove<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> move : movesTo.get(i)) {
+                    Integer p = move.from;
+                    HashMap<StackState, BigInteger> toThere = cardsB.getOrDefault(p, null);
+                    if(toThere == null) {
+                        continue;
+                    }
+                    for(Map.Entry<StackState, BigInteger> toThereS : toThere.entrySet()) {
+                        if(toThereS.getValue().equals(BigInteger.ZERO)) {
+                            continue;
+                        }
+                        BigInteger val = toThereS.getValue();
+                        int witnesses = witnessesBy.get(move);
+                        assert(witnesses >= 0);
+                        StackState s = toThereS.getKey();
+                       // System.out.println(""+p+"("+s.states+")->"+i+":"+val);
+                        if(move instanceof Call) {
+                            //push
+                            s = s.push(((Call<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap>)move).stackState);
+                            //System.out.println("Push "+s.states.get(s.states.size()-1));
+                        } else if(move instanceof Return) {
+                            //pop
+                            if(!s.getTop().equals(((Return<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap>)move).stackState)) {
+                                //To get from toThereS to here the top of stack s must be the same as the return from there to here
+                               // System.out.println("Skip pop "+s.states+":"+move);
+                                continue;
+                            }
+                           // System.out.println("Pop "+s.states.get(s.states.size()-1));
+                            s = s.pop();
+                        } else if(move instanceof Internal) {
+                            //nothing
+                            //s = s;
+                        } else {
+                           // System.out.println(move);
+                            assert(false);
+                        }
+                        BigInteger toHereS = toHere.getOrDefault(s, BigInteger.ZERO);
+                        if(witnesses > 1) {
+                            //System.out.println("Surprise witness count "+witnesses);
+                            assert(false);
+                        }
+                        BigInteger thisOne = val.multiply(BigInteger.valueOf(witnesses));
+                        //System.out.println("Found "+thisOne+" Final? "+isFinal);
+                        if (isFinal && s.size() == 0) {
+                           // System.out.println(""+thisOne+" paths to "+i+" via "+p);
+                            allFound = allFound.add(thisOne);
+                        }
+                        if(isFinal && s.size() != 0) {
+                            //System.out.println("Uh oh");
+                            assert(false);
+                        }
+                        toHere.put(s, toHereS.add(thisOne));
+                    }
+                }
+                cardsA.put(i, toHere);
+            }
+            cardsSwap = cardsA;
+            cardsA = cardsB;
+            cardsB = cardsSwap;
+            //TODO: use a generation marker instead
+            cardsA.clear();
+        }
         return allFound;
     }
 }

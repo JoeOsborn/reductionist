@@ -2,14 +2,28 @@ package edu.ucsc.soe.reductionist;
 
 import org.junit.Test;
 
+import java.math.BigInteger;
+
 public class TestReductionist {
     @Test
     public void CreateSVPA () throws Exception {
-        Reductionist r = Reductionist.fromJSONFile("talktown/talktown-aiide-study-2016.json", false);
+        Reductionist r2 = Reductionist.fromJSONFile("expressionist/grammars/load/tenderclaws.json", false);
+        BigInteger card2 = r2.getCardinality(33);
+        System.out.println("Card:"+card2);
+        assert(card2.equals(BigInteger.valueOf(108)));
+
+        Reductionist r = Reductionist.fromJSONFile("faeMemoryLibrary.json", false);
+        BigInteger card = r.getCardinality(60);
+        System.out.println("Card:"+card);
+        assert(card.equals(BigInteger.valueOf(159)));
+
+        //Reductionist r = Reductionist.fromJSONFile("faeMemoryLibrary.json", false);
+        //Reductionist r = Reductionist.fromJSONFile("joeTest.json", false);
         //todo: fix counting. fae one should have 417 EMs??  unless those are also double counted...
         // ah! It could be that there are 102 distinct meaning-producing paths, some of which have multiple tags, so the EM counting might have different subsets of those showing up... like if "A" and "B" always occur together the result of james's thing will be 3*|ab|/.  also this thing counts orderings of tags and not sets of tags.
         //Reductionist r = Reductionist.fromJSONFile("talktown/talktown-aiide-study-2016.json", false);
-        System.out.format("Card: %d%n", r.getCardinality(50));
+        // TODO: use diameter of SVPA as limit default
+        //System.out.format("Card: %s%n", r.getCardinality(5000).toString());
 
 //        System.out.println("A trace where we say our first and last name");
 //        SVPA<EqualityPredicate<FiniteSetPred, RoaringBitmap>, RoaringBitmap> firstlast = r.tagSetProperty(Arrays.asList("Moves#:#say first name", "Moves#:#say last name"));
